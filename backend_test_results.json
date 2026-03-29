@@ -1,0 +1,46 @@
+{
+  "summary": {
+    "total_tests": 6,
+    "passed_tests": 6,
+    "success_rate": 100.0,
+    "timestamp": "2026-03-29T11:53:56.296044"
+  },
+  "detailed_results": [
+    {
+      "test": "Health endpoint",
+      "success": true,
+      "details": "Status: {'status': 'healthy', 'service': 'pdf-bot-api'}",
+      "timestamp": "2026-03-29T11:53:55.825728"
+    },
+    {
+      "test": "Stats endpoint",
+      "success": true,
+      "details": "Data: {'total_processed': 0, 'total_bytes_saved': 0, 'total_bytes_saved_mb': 0.0, 'uptime_seconds': 0, 'bot_status': 'running'}",
+      "timestamp": "2026-03-29T11:53:55.954278"
+    },
+    {
+      "test": "Logs endpoint",
+      "success": true,
+      "details": "Returned 0 logs",
+      "timestamp": "2026-03-29T11:53:56.054070"
+    },
+    {
+      "test": "PDF Compression",
+      "success": true,
+      "details": "Original: 3273 bytes, Compressed: 2758 bytes",
+      "timestamp": "2026-03-29T11:53:56.214083"
+    },
+    {
+      "test": "PDF A4 Resize",
+      "success": true,
+      "details": "Resized to 595.0x842.0 (A4: 595x842)",
+      "timestamp": "2026-03-29T11:53:56.224667"
+    },
+    {
+      "test": "Full PDF Processing",
+      "success": true,
+      "details": "Processed successfully: 1 pages, 0.0 MB",
+      "timestamp": "2026-03-29T11:53:56.295609"
+    }
+  ]
+}
