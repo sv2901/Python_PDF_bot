@@ -75,29 +75,38 @@ async def health():
 @api_router.get("/stats", response_model=ProcessingStats)
 async def get_stats():
     """Get bot processing statistics."""
-    # Count processed files
-    total_processed = await db.processing_logs.count_documents({})
-    
-    # Calculate total bytes saved
-    pipeline = [
-        {"$group": {
-            "_id": None,
-            "total_original": {"$sum": "$original_size_bytes"},
-            "total_processed": {"$sum": "$processed_size_bytes"}
-        }}
-    ]
-    result = await db.processing_logs.aggregate(pipeline).to_list(1)
-    
-    total_bytes_saved = 0
-    if result:
-        total_bytes_saved = result[0].get("total_original", 0) - result[0].get("total_processed", 0)
-    
-    return ProcessingStats(
-        total_processed=total_processed,
-        total_bytes_saved=total_bytes_saved,
-        total_bytes_saved_mb=round(total_bytes_saved / (1024 * 1024), 2),
-        bot_status="running"
-    )
+    try:
+        # Count processed files
+        total_processed = await db.processing_logs.count_documents({})
+        
+        # Calculate total bytes saved
+        pipeline = [
+            {"$group": {
+                "_id": None,
+                "total_original": {"$sum": "$original_size_bytes"},
+                "total_processed": {"$sum": "$processed_size_bytes"}
+            }}
+        ]
+        result = await db.processing_logs.aggregate(pipeline).to_list(1)
+        
+        total_bytes_saved = 0
+        if result:
+            total_bytes_saved = result[0].get("total_original", 0) - result[0].get("total_processed", 0)
+        
+        return ProcessingStats(
+            total_processed=total_processed,
+            total_bytes_saved=total_bytes_saved,
+            total_bytes_saved_mb=round(total_bytes_saved / (1024 * 1024), 2),
+            bot_status="running"
+        )
+    except Exception:
+        # Return defaults if DB not available
+        return ProcessingStats(
+            total_processed=0,
+            total_bytes_saved=0,
+            total_bytes_saved_mb=0,
+            bot_status="running"
+        )
 
 @api_router.get("/logs", response_model=List[ProcessingLog])
 async def get_logs(limit: int = 50):

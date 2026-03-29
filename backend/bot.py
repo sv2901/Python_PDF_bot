@@ -210,9 +210,8 @@ async def skip_handler(client: Client, message: Message):
         await message.reply_text("Please select a processing option first.")
         return
     
-    # Use original name with optimized_ prefix
-    original_name = file_info["original_name"]
-    output_filename = f"optimized_{original_name}"
+    # Use original name as-is
+    output_filename = file_info["original_name"]
     
     # Process the file
     status_msg = await message.reply_text("⏳ Starting processing...")
