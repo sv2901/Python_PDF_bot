@@ -52,7 +52,7 @@ app = Client(
 )
 
 # Store pending files waiting for user choice
-# Format: {user_id: {file_id, original_name, caption, file_size, message}}
+# Format: {user_id: {file_id, original_name, file_size, message, resize_a4, waiting_filename}}
 pending_files = {}
 
 # Processing state to prevent double-processing
@@ -74,34 +74,12 @@ def sanitize_filename(filename: str) -> str:
     return filename.strip()
 
 
-def get_output_filename(original_name: str, caption: str | None) -> str:
-    """
-    Determine output filename based on caption or original name.
-    - If caption provided: use caption as filename
-    - Else: prefix with "optimized_"
-    """
-    if caption and caption.strip():
-        # Use caption as filename
-        base_name = sanitize_filename(caption.strip())
-        if not base_name.lower().endswith('.pdf'):
-            base_name += '.pdf'
-        return base_name
-    else:
-        # Prefix with optimized_
-        if original_name:
-            return f"optimized_{original_name}"
-        return "optimized_document.pdf"
-
-
 def get_processing_keyboard():
     """Create inline keyboard for processing options."""
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("📦 Compress Only", callback_data="compress_only"),
             InlineKeyboardButton("📐 Compress + A4", callback_data="compress_a4")
-        ],
-        [
-            InlineKeyboardButton("✏️ Rename File", callback_data="rename_file")
         ]
     ])
 
@@ -113,12 +91,12 @@ async def start_handler(client: Client, message: Message):
         "**📄 PDF Optimizer Bot**\n\n"
         "Send me a PDF file and I'll help you:\n"
         "• **Compress** - Reduce file size\n"
-        "• **Compress + A4** - Compress & resize to A4\n"
-        "• **Rename** - Custom filename\n\n"
+        "• **Compress + A4** - Compress & resize to A4\n\n"
         "**How to use:**\n"
         "1. Send a PDF file\n"
         "2. Choose processing option\n"
-        "3. (Optional) Add caption to rename\n\n"
+        "3. Enter filename for output\n"
+        "4. Get optimized PDF!\n\n"
         "Supports files up to 300MB."
     )
 
@@ -154,7 +132,6 @@ async def document_handler(client: Client, message: Message):
     file_id = document.file_id
     file_size = document.file_size
     original_name = document.file_name or "document.pdf"
-    caption = message.caption
     
     # Check file size (300MB limit)
     max_size = 300 * 1024 * 1024  # 300MB in bytes
@@ -171,28 +148,24 @@ async def document_handler(client: Client, message: Message):
     pending_files[user_id] = {
         "file_id": file_id,
         "original_name": original_name,
-        "caption": caption,
         "file_size": file_size,
-        "message": message
+        "message": message,
+        "resize_a4": False,
+        "waiting_filename": False
     }
     
     # Show options
     size_mb = round(file_size / (1024 * 1024), 2)
     
-    # If caption provided, show it will be used for renaming
-    rename_note = ""
-    if caption:
-        rename_note = f"\n📝 **Will rename to:** {sanitize_filename(caption)}.pdf"
-    
     await message.reply_text(
         f"**📄 {original_name}**\n"
-        f"📦 Size: {size_mb} MB{rename_note}\n\n"
+        f"📦 Size: {size_mb} MB\n\n"
         f"Choose processing option:",
         reply_markup=get_processing_keyboard()
     )
 
 
-@app.on_callback_query(filters.regex("^(compress_only|compress_a4|rename_file)$"))
+@app.on_callback_query(filters.regex("^(compress_only|compress_a4)$"))
 async def process_callback(client: Client, callback: CallbackQuery):
     """Handle processing option selection."""
     user_id = callback.from_user.id
@@ -205,34 +178,54 @@ async def process_callback(client: Client, callback: CallbackQuery):
     
     file_info = pending_files[user_id]
     
-    if action == "rename_file":
-        # Ask for new filename
-        await callback.message.edit_text(
-            f"**📝 Rename File**\n\n"
-            f"Current: {file_info['original_name']}\n\n"
-            f"Send me the new filename (without .pdf extension).\n"
-            f"Or send /cancel to go back."
-        )
-        # Mark waiting for rename
-        file_info["waiting_rename"] = True
-        pending_files[user_id] = file_info
-        await callback.answer()
+    # Store the choice and ask for filename
+    file_info["resize_a4"] = (action == "compress_a4")
+    file_info["waiting_filename"] = True
+    pending_files[user_id] = file_info
+    
+    mode_text = "Compress + A4" if file_info["resize_a4"] else "Compress Only"
+    
+    await callback.message.edit_text(
+        f"**📄 {file_info['original_name']}**\n"
+        f"⚙️ Mode: {mode_text}\n\n"
+        f"📝 **Enter the output filename:**\n"
+        f"(without .pdf extension)\n\n"
+        f"Or send /skip to use original name"
+    )
+    await callback.answer()
+
+
+@app.on_message(filters.command("skip"))
+async def skip_handler(client: Client, message: Message):
+    """Handle /skip command - use original filename."""
+    user_id = message.from_user.id
+    
+    if user_id not in pending_files:
+        await message.reply_text("No file to process. Send a PDF first.")
         return
     
-    # Process the file
-    await callback.answer("⏳ Processing started...")
+    file_info = pending_files[user_id]
     
-    resize_a4 = (action == "compress_a4")
-    await process_file(client, callback.message, file_info, resize_a4)
+    if not file_info.get("waiting_filename"):
+        await message.reply_text("Please select a processing option first.")
+        return
+    
+    # Use original name with optimized_ prefix
+    original_name = file_info["original_name"]
+    output_filename = f"optimized_{original_name}"
+    
+    # Process the file
+    status_msg = await message.reply_text("⏳ Starting processing...")
+    await process_file(client, status_msg, file_info, output_filename)
     
     # Cleanup
     if user_id in pending_files:
         del pending_files[user_id]
 
 
-@app.on_message(filters.text & ~filters.command(["start", "stats", "cancel"]))
+@app.on_message(filters.text & ~filters.command(["start", "stats", "skip"]))
 async def text_handler(client: Client, message: Message):
-    """Handle text messages (for rename input)."""
+    """Handle text messages (for filename input)."""
     user_id = message.from_user.id
     
     if user_id not in pending_files:
@@ -240,57 +233,35 @@ async def text_handler(client: Client, message: Message):
     
     file_info = pending_files[user_id]
     
-    if not file_info.get("waiting_rename"):
+    if not file_info.get("waiting_filename"):
         return
     
-    # Set new filename
+    # Get filename from user input
     new_name = sanitize_filename(message.text.strip())
     if not new_name:
         await message.reply_text("❌ Invalid filename. Please try again.")
         return
     
-    file_info["caption"] = new_name
-    file_info["waiting_rename"] = False
-    pending_files[user_id] = file_info
+    # Add .pdf extension if not present
+    if not new_name.lower().endswith('.pdf'):
+        new_name += '.pdf'
     
-    # Show options again with updated name
-    await message.reply_text(
-        f"**📄 {file_info['original_name']}**\n"
-        f"📝 **Will rename to:** {new_name}.pdf\n\n"
-        f"Choose processing option:",
-        reply_markup=get_processing_keyboard()
-    )
-
-
-@app.on_message(filters.command("cancel"))
-async def cancel_handler(client: Client, message: Message):
-    """Handle /cancel command."""
-    user_id = message.from_user.id
+    # Process the file
+    status_msg = await message.reply_text("⏳ Starting processing...")
+    await process_file(client, status_msg, file_info, new_name)
     
+    # Cleanup
     if user_id in pending_files:
-        file_info = pending_files[user_id]
-        file_info["waiting_rename"] = False
-        pending_files[user_id] = file_info
-        
-        await message.reply_text(
-            f"**📄 {file_info['original_name']}**\n\n"
-            f"Choose processing option:",
-            reply_markup=get_processing_keyboard()
-        )
-    else:
-        await message.reply_text("Nothing to cancel.")
+        del pending_files[user_id]
 
 
-async def process_file(client: Client, status_message: Message, file_info: dict, resize_a4: bool):
+async def process_file(client: Client, status_message: Message, file_info: dict, output_filename: str):
     """Process the PDF file."""
     file_id = file_info["file_id"]
     original_name = file_info["original_name"]
-    caption = file_info["caption"]
     file_size = file_info["file_size"]
     original_message = file_info["message"]
-    
-    # Get output filename
-    output_filename = get_output_filename(original_name, caption)
+    resize_a4 = file_info["resize_a4"]
     
     # Prevent double-processing
     if file_id in processing_files:
@@ -306,6 +277,7 @@ async def process_file(client: Client, status_message: Message, file_info: dict,
         f"**⏳ Processing your PDF...**\n\n"
         f"📄 File: {original_name}\n"
         f"📦 Size: {round(file_size / (1024 * 1024), 2)} MB\n"
+        f"📝 Output: {output_filename}\n"
         f"⚙️ Mode: {mode_text}\n\n"
         "⬇️ Downloading..."
     )
@@ -338,6 +310,7 @@ async def process_file(client: Client, status_message: Message, file_info: dict,
             f"**⏳ Processing your PDF...**\n\n"
             f"📄 File: {original_name}\n"
             f"📦 Size: {round(file_size / (1024 * 1024), 2)} MB\n"
+            f"📝 Output: {output_filename}\n"
             f"⚙️ Mode: {mode_text}\n\n"
             f"✅ Downloaded in {download_time:.1f}s\n"
             "🔄 Processing..."
@@ -377,6 +350,7 @@ async def process_file(client: Client, status_message: Message, file_info: dict,
             f"**⏳ Processing your PDF...**\n\n"
             f"📄 File: {original_name}\n"
             f"📦 Size: {round(file_size / (1024 * 1024), 2)} MB\n"
+            f"📝 Output: {output_filename}\n"
             f"⚙️ Mode: {mode_text}\n\n"
             f"✅ Downloaded in {download_time:.1f}s\n"
             f"✅ Processed in {process_time:.1f}s\n"

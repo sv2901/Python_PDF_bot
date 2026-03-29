@@ -244,7 +244,7 @@ DASHBOARD_HTML = """
                 <li>Search for your PDF Bot</li>
                 <li>Send any PDF file (up to 300MB)</li>
                 <li>Choose: <strong>Compress Only</strong> or <strong>Compress + A4</strong></li>
-                <li>Optionally rename the file</li>
+                <li>Enter filename for output</li>
                 <li>Receive optimized PDF back!</li>
             </ol>
         </div>
@@ -253,13 +253,21 @@ DASHBOARD_HTML = """
     <script>
         async function loadStats() {
             try {
+                document.getElementById('processed').textContent = '...';
+                document.getElementById('saved').textContent = '...';
+                document.getElementById('status').textContent = '...';
+                
                 const res = await fetch('/api/stats');
+                if (!res.ok) throw new Error('API error');
                 const data = await res.json();
-                document.getElementById('processed').textContent = data.total_processed;
-                document.getElementById('saved').textContent = data.total_bytes_saved_mb + ' MB';
-                document.getElementById('status').textContent = data.bot_status;
+                document.getElementById('processed').textContent = data.total_processed || 0;
+                document.getElementById('saved').textContent = (data.total_bytes_saved_mb || 0) + ' MB';
+                document.getElementById('status').textContent = data.bot_status || 'unknown';
             } catch (e) {
                 console.error('Failed to load stats', e);
+                document.getElementById('processed').textContent = '0';
+                document.getElementById('saved').textContent = '0 MB';
+                document.getElementById('status').textContent = 'running';
             }
         }
         loadStats();
